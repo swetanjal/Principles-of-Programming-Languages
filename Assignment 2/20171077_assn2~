@@ -1,0 +1,17 @@
+#lang racket
+(require eopl)
+(define-datatype tree tree?
+    [leaf (key number?)]
+    [node (key number?) (left-parent tree?) (right-parent tree?)])
+
+(define node-1 (leaf 1))
+(define node-2 (leaf 2))
+(define root
+    (node 3 node-1 node-2))
+
+(define reduce
+  (lambda(f init tr)
+    (cases tree tr
+      (leaf(v) v)
+      (node(v l r)(f v (f (reduce f init l) (reduce f init r))))
+     )))

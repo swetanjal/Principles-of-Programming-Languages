@@ -1,0 +1,4 @@
+#lang racket
+(define dot
+  (lambda(x y)
+    (* x y)))

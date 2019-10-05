@@ -1,0 +1,624 @@
+#+TITLE: Parser for the LEXICAL Language
+#+AUTHOR: Atreyee Ghosal
+
+
+* Introduction
+
+Your main parse function- that you pass a string representing one line of your program, to- and that returns a parse tree- is as follows:
+
+#+NAME: parse
+#+BEGIN_SRC haskell
+parse :: String -> ParseTree
+parse = (recurReduce 0) . (map toType) . tokenize
+#+END_SRC
+
+It takes a string, with each token in the string separated by a whitespace. It returns an object of type =ParseTree=, which is:
+
+#+BEGIN_SRC haskell
+  data ParseTree =
+      Numeric Int  -- a single number
+    | Booleric Bool  -- a single boolean
+    | Symbol String -- a single symbol, i.e: name/variable
+    | Appl Op [ParseTree] -- a mathematical or logical operation
+    | AssumeAppl ParseTree ParseTree -- a set of bindings, followed by an expression
+    | IfAppl ParseTree ParseTree ParseTree -- if <condition> <then> <else>
+#+END_SRC
+
+This is not the complete =ParseTree= type, but the final parse tree will have only these forms.
+
+This is /not/ the final AST, although it can be simply converted to an AST. The parser does not perform any semantic or type checks, eg: it will not raise an error if =+= is applied to two boolean values.
+
+** Usage
+
+Usage: after tangling out the two =.hs= files (reminder: tangling keys are =Ctrl-c Ctrl-v Ctrl-t=), open the =ghci= prompt, and: 
+
+#+BEGIN_SRC haskell
+Prelude> :l ASTParser.hs 
+[1 of 2] Compiling ParseUtils       ( ParseUtils.hs, interpreted )
+[2 of 2] Compiling ASTParser        ( ASTParser.hs, interpreted )
+Ok, two modules loaded.
+
+*ASTParser> parse "0"
+Numeric 0
+
+*ASTParser> parse "False"
+Booleric False
+
+*ASTParser> parse "( + 23 34 )"
+Appl + [Numeric 23,Numeric 34]
+
+*ASTParser> parse "( + ( - 4 2 ) ( / 10 5 ) )"
+Appl + [Appl - [Numeric 4,Numeric 2],Appl / [Numeric 10,Numeric 5]]
+
+*ASTParser> parse "( & ( ~ True ) False )"
+Appl & [Appl ~ [Booleric True],Booleric False]
+
+*ASTParser> parse "( zero? 0 )"
+Appl zero? [Numeric 0]
+
+#+END_SRC
+
+** Usage Within Your Program
+
+You can use it within your interpreter program by:
+
+(a) Placing the =ParseTree.hs= and the =ParseUtils.hs= files in the same directory as your =interpreter.hs= file, and
+
+(b) Importing the =ParseTree= module within your =interpreter.hs= file as follows:
+
+#+BEGIN_SRC haskell
+
+import ParseTree
+
+-- your code here
+
+#+END_SRC
+
+* The =ParseTree= Type
+
+#+NAME: parseTree
+#+BEGIN_SRC haskell
+  type Ident = String
+
+  data ParseTree =
+      LBracket
+    | RBracket                             
+    | Operator Op                          
+    | Numeric Int                          
+    | Booleric Bool                        
+    | Symbol Ident                         
+    | IfKeyw                               
+    | AssumeKeyw                           
+    | BindAppl ParseTree ParseTree
+    | BindSeq [ParseTree]
+    | Appl Op [ParseTree]                  
+    | IfAppl ParseTree ParseTree ParseTree 
+    | AssumeAppl ParseTree ParseTree     
+    deriving (Show)
+
+#+END_SRC
+
+The =deriving= keyword means that the type is automatically /deriving/ an instance of that typeclass. So here, it means that we don't have to manually define a =show= function for our type, Haskell does it for us.
+
+** Some Utility Functions For =ParseTree=
+
+Functions to check if (a) Two nodes are of the same type- =isEqv=, and (b) If a node is an AST-convertible value- =isExpr=. The final parse tree of a code line will be composed only of AST-covertible values.
+
+#+NAME: parseTree_utility_functions
+#+BEGIN_SRC haskell 
+isEqv :: ParseTree -> ParseTree -> Bool
+isEqv LBracket LBracket = True
+isEqv RBracket RBracket = True
+isEqv (Numeric _) (Numeric _) = True
+isEqv (Booleric _) (Booleric _) = True
+isEqv (Operator _) (Operator _) = True
+isEqv (Symbol _) (Symbol _) = True
+isEqv IfKeyw IfKeyw = True
+isEqv AssumeKeyw AssumeKeyw = True
+isEqv (BindAppl _ _) (BindAppl _ _) = True
+isEqv (BindSeq _) (BindSeq _) = True
+isEqv (Appl _ _) (Appl _ _) = True
+isEqv (IfAppl _ _ _) (IfAppl _ _ _) = True
+isEqv (AssumeAppl _ _) (AssumeAppl _ _) = True
+isEqv a b = False
+
+
+isExpr :: ParseTree -> Bool
+isExpr (Booleric _) = True
+isExpr (Numeric _) = True
+isExpr (Symbol _) = True
+isExpr (BindAppl _ _) = True
+isExpr (Appl _ _) = True
+isExpr (IfAppl _ _ _) = True
+isExpr (AssumeAppl _ _) = True
+isExpr a = False
+
+#+END_SRC
+
+* The =Op= Type
+
+The =Op= type for operators, and a manually derived =Show= typeclass instance for the type.
+
+#+NAME: operator
+#+BEGIN_SRC haskell 
+data Op = Add | Sub | Mul | Div | And | Or | Not | IsZero
+          deriving (Eq)
+
+instance Show Op where
+    show Add = "+"
+    show Sub = "-"
+    show Mul = "*"
+    show Div = "/"
+    show And = "&"
+    show Or = "|"
+    show Not = "~"
+    show IsZero = "zero?"
+
+#+END_SRC
+
+* The Lexer
+
+** Tokenizer
+
+Tokenizes a string. The conditions for proper tokenization are:
+
+- All identifiers or numbers MUST be surrounded by a pair of whitespaces.
+- Operators, brackets, keywords and inbuilt values- =True= and =False= - can be joined together or surrounded by whitespaces.
+
+#+NAME: tokenizer
+#+BEGIN_SRC haskell 
+
+  keywords :: [String]
+  keywords = ["+", "-", "/", "*", "&", "|", "~", "zero?",
+              "assume", "if", "id-ref", "(", ")", "True", "False"]
+
+  tokenIter :: String -> String -> [String] -> [String]
+  tokenIter expr word tokens
+    | (expr == "") =
+      case word of
+        ""        -> tokens
+        otherwise -> tokens ++ [word]
+    | (word `elem` keywords) = tokenIter expr "" (tokens ++ [word])  
+    | ((head expr) == ' ') =
+        case word of
+          ""        -> tokenIter (tail expr) word tokens
+          otherwise -> tokenIter (tail expr) "" (tokens ++ [word])
+    | otherwise = tokenIter (tail expr) (word ++ [(head expr)]) tokens
+
+  tokenize :: String -> [String]
+  tokenize s = tokenIter s "" []
+#+END_SRC
+
+** Lexer
+
+Converts tokens to parser-tokens (tokens with a category).
+
+#+NAME: lexer
+#+BEGIN_SRC haskell
+
+  toType :: String -> ParseTree
+  toType s 
+    | isEq "(" s  = LBracket
+    | isEq ")" s  = RBracket
+    | isKey s      = toKey s
+    | isNumber s  = Numeric (read s)
+    | isBoolean s = Booleric (read s)
+    | isAlNum s   = Symbol s
+    | otherwise   = error "Incorrect syntax!"
+
+#+END_SRC
+
+** Special Conversion for Keywords
+
+#+NAME: toOp
+#+BEGIN_SRC haskell 
+
+  toKey :: String -> ParseTree
+  toKey word = case word of
+    "+" -> Operator Add
+    "-" -> Operator Sub
+    "*" -> Operator Mul
+    "/" -> Operator Div
+    "&" -> Operator And
+    "|" -> Operator Or
+    "~" -> Operator Not
+    "zero?" -> Operator IsZero
+    "if" -> IfKeyw
+    "assume" -> AssumeKeyw
+    otherwise -> error "Invalid syntax"
+
+#+END_SRC
+
+* Real Men Make Their Own Pattern Matchers
+
+Pattern-matching over =ParseTree= sequences, instead of using the =Regex= library over strings like a normal person.
+
+#+NAME: seqMatch
+#+BEGIN_SRC haskell
+
+  seqMatch :: [(ParseTree -> Bool)] -- predicate list
+           -> [ParseTree]
+           -> Bool
+  seqMatch preds seq =
+    let
+      applyPred f a = f a
+      matches = zipWith applyPred preds seq
+    in
+      foldr (&&) True matches
+            
+#+END_SRC
+
+* Parser Rules
+
+A structure for reduction rules- each rule has a predicate checking if the reduction rule can be applied on a given sequence of tokens.
+
+#+NAME: rule
+#+BEGIN_SRC haskell
+
+  type Predicate = [ParseTree] -> Bool
+  type Reduction = [ParseTree] -> ParseTree
+
+  data Rule = Rule Predicate Reduction
+
+  apply :: Rule -> [ParseTree] -> Maybe (ParseTree)
+  apply (Rule predicate reduce) seq =
+    case (predicate seq) of
+      True  -> Just (reduce seq)
+      False -> Nothing
+#+END_SRC
+
+** Binary Primitive Application Rule
+
+Predicate that checks if a sublist represents a binary application of an operator?
+
+And reduction rule that converts a sublist of the sort  ["(", <binary_operator>, <value>, <value>, ")"] into a parse tree node representing an application of said operator on the values (=Appl Op [Values]=)
+
+
+#+NAME: binaryPrimApp
+#+BEGIN_SRC haskell 
+  predBinaryPrimApp :: Predicate
+  predBinaryPrimApp ls =
+     let
+       preds = [(isEqv LBracket),
+                (isEqv (Operator Add)),
+                isExpr, isExpr,
+                (isEqv RBracket)]
+     in
+       (checkLen ls 5) && (seqMatch preds ls)
+   
+  redBinaryPrimApp :: Reduction
+  redBinaryPrimApp ls = Appl op [x, y]
+    where
+      (Operator op) = ls !! 1
+      x  = ls !! 2
+      y  = ls !! 3
+
+  binaryPrimApp :: Rule
+  binaryPrimApp = Rule predBinaryPrimApp redBinaryPrimApp
+
+#+END_SRC
+
+** Unary Primitive Application Rule
+
+Predicate that checks if the sublist represents an unary application of an operator, and reduction rule that converts a sublist of the sort  ["(", <unary_operator>, <value> ")"] into a parse tree node representing an application of said operator on the value (=Appl Op [Value]=)
+
+#+NAME: unaryPrimApp
+#+BEGIN_SRC haskell 
+  predUnaryPrimApp :: Predicate
+  predUnaryPrimApp ls =
+    let
+      preds = [(isEqv LBracket),
+               (isEqv (Operator Add)),
+               isExpr,
+               (isEqv RBracket)]
+    in
+      (checkLen ls 4) && (seqMatch preds ls)
+
+  redUnaryPrimApp :: Reduction
+  redUnaryPrimApp ls = Appl op [x]
+    where
+      (Operator op) = ls !! 1
+      x  = ls !! 2
+
+  unaryPrimApp :: Rule
+  unaryPrimApp = Rule predUnaryPrimApp redUnaryPrimApp
+#+END_SRC
+
+** Single Binding Rule
+
+Parse a single binding.
+
+#+NAME: binding
+#+BEGIN_SRC haskell 
+
+    predBind :: Predicate
+    predBind ls =
+      let
+        preds = [(isEqv LBracket),
+                 (isEqv (Symbol "x")),
+                 isExpr,
+                 (isEqv RBracket)]
+      in
+        (checkLen ls 4) && (seqMatch preds ls)
+
+    redBind :: Reduction
+    redBind ls = BindAppl sym expr
+      where
+        sym = ls !! 1
+        expr  = ls !! 2
+
+    bind :: Rule
+    bind = Rule predBind redBind
+
+#+END_SRC
+
+** Make List of Binds Rule
+
+Append two consecutive binds into a list of binds.
+
+#+NAME: listBinds
+#+BEGIN_SRC haskell 
+
+  predListBinds :: Predicate
+  predListBinds ls =
+    let
+      preds = [(isEqv (BindAppl (Symbol "x") (Numeric 1))),
+               (isEqv (BindAppl (Symbol "x") (Numeric 1)))
+              ]
+    in
+      (checkLen ls 2) && (seqMatch preds ls)
+
+  redListBinds :: Reduction
+  redListBinds ls = BindSeq ls
+
+  listBinds :: Rule
+  listBinds = Rule predListBinds redListBinds
+
+#+END_SRC
+
+** Append Bind To List of Binds Rule
+
+Append a bind to a list of binds.
+
+#+NAME: appendBinds
+#+BEGIN_SRC haskell 
+
+  predAppendBinds :: Predicate
+  predAppendBinds ls =
+    let
+      preds = [(isEqv (BindSeq [BindAppl (Symbol "x") (Numeric 1)])),
+               (isEqv (BindAppl (Symbol "x") (Numeric 1)))
+              ]
+    in
+      (checkLen ls 2) && (seqMatch preds ls)
+
+  redAppendBinds :: Reduction
+  redAppendBinds ls = BindSeq $ oldBinds ++ [newBind]
+    where
+      getBindsFromSeq (BindSeq binds) = binds
+      oldBinds = getBindsFromSeq $ ls !! 0
+      newBind = ls !! 1
+
+  appendBinds :: Rule
+  appendBinds = Rule predAppendBinds redAppendBinds
+
+#+END_SRC
+
+** Assume Binds Rule
+
+Make a bracketed list of binds into a bind sequence that can attach to an =assume=.
+
+#+NAME: assumeBinds
+#+BEGIN_SRC haskell 
+
+  predAssumeBinds :: Predicate
+  predAssumeBinds ls =
+    let
+      preds = [(isEqv LBracket),
+               (isEqv (BindSeq [BindAppl (Symbol "x") (Numeric 1)])),
+               (isEqv RBracket)
+              ]
+    in
+      (checkLen ls 3) && (seqMatch preds ls)
+
+  redAssumeBinds :: Reduction
+  redAssumeBinds ls = BindSeq $ allBinds
+    where
+      getBindsFromSeq (BindSeq binds) = binds
+      allBinds = getBindsFromSeq $ ls !! 1
+
+  assumeBinds :: Rule
+  assumeBinds = Rule predAssumeBinds redAssumeBinds
+
+#+END_SRC
+
+** Assume Rule
+
+
+#+NAME: assume
+#+BEGIN_SRC haskell 
+
+  predAssume :: Predicate
+  predAssume ls =
+    let
+      preds = [(isEqv LBracket),
+               (isEqv AssumeKeyw),
+               (isEqv (BindSeq [BindAppl (Symbol "x") (Numeric 1)])),
+               isExpr,
+               (isEqv RBracket)
+              ]
+    in
+      (checkLen ls 5) && (seqMatch preds ls)
+
+  redAssume :: Reduction
+  redAssume ls = AssumeAppl binds expr
+    where
+      binds = ls !! 2
+      expr = ls !! 3
+
+  assume :: Rule
+  assume = Rule predAssume redAssume
+
+#+END_SRC
+
+** If Rule
+
+#+NAME: rediff
+#+BEGIN_SRC haskell
+    predIf :: Predicate
+    predIf ls =
+      let
+        preds = [(isEqv LBracket),
+                 (isEqv IfKeyw),
+                 isExpr,
+                 isExpr,
+                 isExpr,
+                 (isEqv RBracket)
+                ]
+      in
+        (checkLen ls 6) && (seqMatch preds ls)
+
+    redIf :: Reduction
+    redIf ls = IfAppl cond thenExpr elseExpr
+      where
+        cond = ls !! 2
+        thenExpr = ls !! 3
+        elseExpr = ls !! 4
+            
+    rediff :: Rule
+    rediff = Rule predIf redIf
+
+#+END_SRC
+   
+* The Parser Core
+
+** Map A Function Over n-sized Windows of a List
+
+Take size-n windows of a list, map the predicate over each of those windows, and reduce the window to a single value if the predicate fits.
+
+#+NAME: windowmap
+#+BEGIN_SRC haskell 
+      
+  windowmap :: Int
+            -> Rule
+            -> [ParseTree] -- input sequence of tokens
+            -> [ParseTree] -- accumulator
+            -> [ParseTree] -- output (reduced) token sequence
+  windowmap n rule acc [] = acc
+  windowmap n rule acc ls =
+    let
+      window = take n ls
+      rest = drop n ls
+      reduced = apply rule window
+    in
+      case reduced of
+        Just x  -> windowmap n rule (acc ++ [x]) rest
+        Nothing -> windowmap n rule (acc ++ [head ls]) (tail ls)
+
+#+END_SRC
+
+** Apply Reduction Rules
+
+Apply reduction rules to a list of leaf nodes until they're all reduced to a single parse tree.
+
+#+NAME: recurReduce
+#+BEGIN_SRC haskell
+  rules :: [(Int, Rule)]
+  rules = [(4, unaryPrimApp),
+           (5, binaryPrimApp),
+           (4, bind),
+           (2, listBinds),
+           (2, appendBinds),
+           (3, assumeBinds),
+           (5, assume),
+           (6, rediff)]
+
+  mapRule :: (Int, Rule) -> [ParseTree] -> [ParseTree]
+  mapRule (size, rule) seq = windowmap size rule [] seq
+
+  recurReduce :: Int -> [ParseTree] -> ParseTree
+  recurReduce 200 ls = error "Error: sentence is unparseable"
+  recurReduce iters [a] = a
+  recurReduce iters ls =
+    let
+      itern = foldr mapRule ls rules  
+    in
+      recurReduce (iters + 1) itern
+#+END_SRC
+
+* Utility Functions
+
+These are utility functions (mostly predicates) used in the main parser module.
+
+#+BEGIN_SRC haskell :tangle ParseUtils.hs
+  module ParseUtils where
+
+  checkLen :: [a] -> Int -> Bool
+  checkLen ls n = (length ls) == n
+
+  isEq :: String -> String -> Bool
+  isEq s s_ = s == s_
+
+  numbers :: String
+  numbers = "1234567890"
+
+  letters :: String
+  letters = "abcdefghijklmnopqrstuvwxyz"
+
+  isDigit :: Char -> Bool
+  isDigit d = d `elem` numbers
+
+  isAlphaDigit :: Char -> Bool
+  isAlphaDigit d = (d `elem` numbers) || (d `elem` letters)
+
+  isNumber :: String -> Bool
+  isNumber n = foldr (&&) True $  map isDigit n
+
+  isAlNum :: String -> Bool
+  isAlNum s = foldr (&&) True $  map isAlphaDigit s
+
+  isBoolean :: String -> Bool
+  isBoolean s = (s == "True") || (s == "False")
+
+  isBinaryOp :: String -> Bool
+  isBinaryOp s = s `elem` ["=", "+", "-", "*", "/", "&", "|"]
+
+  isUnaryOp :: String -> Bool
+  isUnaryOp s = s `elem` ["~", "zero?"]
+
+  isOtherKeyw :: String -> Bool
+  isOtherKeyw s = s `elem` ["assume", "if"]
+
+  isKey :: String -> Bool
+  isKey s = (isBinaryOp s) || (isUnaryOp s) || (isOtherKeyw s)
+
+#+END_SRC
+
+* Imports and Tangling
+
+#+BEGIN_SRC haskell :eval no :noweb yes :tangle ASTParser.hs
+module ASTParser where
+
+import Data.String
+import ParseUtils
+
+<<parse>>
+<<parseTree>>
+<<parseTree_utility_functions>>
+<<operator>>
+<<seqMatch>>
+<<lexer>>
+<<toOp>>
+<<rule>>
+<<binaryPrimApp>>
+<<unaryPrimApp>>
+<<binding>>
+<<listBinds>>
+<<appendBinds>>
+<<assumeBinds>>
+<<assume>>
+<<rediff>>
+<<tokenizer>>
+<<windowmap>>
+<<recurReduce>>
+#+END_SRC

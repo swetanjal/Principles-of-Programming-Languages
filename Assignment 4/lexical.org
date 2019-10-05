@@ -1,0 +1,168 @@
+#+TITLE: The LEXICAL Language
+#+AUTHOR: Atreyee Ghosal
+
+* Semantic Domains
+
+** Expressible Values
+
+Types of values returned by evaluating an ast.
+
+expressible-value ::=  number | boolean
+
+This is defined for you as an example.
+
+#+NAME: expressible
+#+BEGIN_SRC haskell
+
+  data Value = NumVal Int | BoolVal Bool
+
+  instance Show Value where
+    show (NumVal n) = show n
+    show (BoolVal b) = show b
+#+END_SRC
+
+** Denotable Values
+
+Types of values denoted by identifiers.
+
+denotable-value ::= number | boolean
+
+In the style of =Value=, make a similar datatype for denotable values.
+
+* AST
+
+The abstract syntax of the program is:
+
+<ast> ::= <num-ast> | <bool-ast> |
+           <prim-app-ast> | <if-ast>
+           <assume-ast>
+           <id-ref-ast>
+
+<num-ast>  ::= (number <number>)
+<bool-ast> ::= (boolean <boolean>)
+<prim-app-ast> ::= (prim-app <op> <ast> ...)
+<assume-ast>   ::= (assume (<bind> ...) <ast>)
+<id-ref-ast>   ::= (id-ref <id>)
+<if-ast>      ::= (if <ast> <ast> <ast>)
+<bind>     ::= (make-bind <id> <ast>)
+
+
+Complete the =AST= datatype defined here.
+
+#+NAME: ast
+#+BEGIN_SRC haskell
+ data AST = Number Int | Boolean Bool | ...
+#+END_SRC
+
+Some example secondary types for the AST:
+
+#+NAME: ast_types
+#+BEGIN_SRC haskell
+
+  type Id = String
+
+  data Bind = Bind Id AST
+#+END_SRC
+
+* Environment
+
+An environment is a repository of mappings from symbols to
+values, ie., values *denoted* by identifiers.
+
+Define an =Env= type- for your environment- as a list of
+tuples, and a function =lookupEnv :: Env -> String ->
+Denotable= that returns the value of an identifier in the
+environment.
+
+* Optional: =Show= Typeclass Instances
+
+This is not strictly necessary, but for intermediate and
+test printing, you might want to define =Show= instances for
+the =AST= and =Env= types.
+
+A =Show= instance for =Bind= has been written below.
+ 
+#+NAME: show
+#+BEGIN_SRC haskell
+
+  instance Show Bind where
+    show (Bind id ast) = "(" ++ (show id) ++ " " ++ (show ast) ++ ")"
+
+#+END_SRC
+
+* Evaluator
+
+Define your evaluator function here. The evaluator function
+takes an =AST= and an =Env=, and returns an expressible
+=Value=.
+
+#+NAME: eval
+#+BEGIN_SRC haskell
+
+eval :: Env -> AST -> Value
+eval env (Number n) = NumVal n
+eval env (Boolean b) = BoolVal b
+eval env (PrimApp op args) = ...
+eval env (..) = ..
+#+END_SRC 
+
+Complete the function.
+
+* Concrete Syntax
+
+The parser for the concrete syntax is defined for you in the
+accompanying file =parser.org=.
+
+The grammar for the concrete syntax is extended from the
+grammar for the ARITHMETIC language. Once again, it's
+racket-like, and expressions are bracketed. The BNF form for
+this grammar is:
+
+<exp> ::= <number> |  <boolean> |
+          (<op> <exp> ...) |
+          <symbol>  |
+          (if <exp> <exp> <exp>) | 
+          (assume ((<symbol> <exp>) ...) <exp>)
+op  ::= one of *op-symbols*
+op-symbols ::= <same as last assignment>
+
+You have to convert the parse tree to its equivalent AST
+before being able to use it. Here's an example of the type
+coercion functions required:
+
+#+NAME: parsetree_to_ast
+#+BEGIN_SRC haskell
+toAST :: ParseTree -> AST
+toAST (Numeric n) = Number n
+toAST (Booleric b) = Boolean b
+...
+#+END_SRC
+
+ Complete this function by looking at the following definition of =ParseTree= (you can also see the definition in =parser.org/introduction=), and using your own definition of =AST=.
+
+** =ParseTree=
+
+#+BEGIN_SRC haskell
+  data ParseTree =
+      Numeric Int  -- a single number
+    | Booleric Bool  -- a single boolean
+    | Symbol String -- a single symbol, i.e: name/variable
+    | Appl Op [ParseTree] -- a mathematical or logical operation
+    | AssumeAppl ParseTree ParseTree -- a set of bindings, followed by an expression
+    | IfAppl ParseTree ParseTree ParseTree -- if <condition> <then> <else>
+#+END_SRC
+
+
+* Imports and Tangling
+
+Complete the list of imports before tangling.
+
+#+BEGIN_SRC haskell :eval no :noweb yes :tangle lexical.hs
+import ASTParser
+
+<<ast>>
+<<ast_types>>
+...
+<<eval>>
+<<parsetree_to_ast>>
+#+END_SRC

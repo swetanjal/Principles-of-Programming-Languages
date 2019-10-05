@@ -1,0 +1,231 @@
+#+TITLE: Homework on Functional Programming
+#+AUTHOR: POPL Instructors
+
+* DataTypes 
+
+The =eopl= library in racket exports keywords to help define datatypes.
+
+Here is an example of a recursive type that attempts to 
+create a list of numbers. A recursive type is a type that can contain
+an instance of itself- i.e: it *recurses* upon itself as a type.
+
+The following is a recursive type for a Binary Tree structure.
+
+#+BEGIN_SRC scheme :tangle fp.rkt
+  #lang racket
+  (require eopl)
+
+  (define-datatype tree tree?
+    [leaf (key number?)]
+    [node (key number?) (left-parent tree?) (right-parent tree?)])
+#+END_SRC
+
+An example usage of the datatype:
+
+#+BEGIN_SRC scheme
+
+>  (define node-1 (leaf 1))
+>  (define node-2 (leaf 2))
+>  (define root
+    (node 3 node-1 node-2))
+>  root
+(node 3 (leaf 1) (leaf 2))
+
+#+END_SRC
+
+** Higher Order Functions On Trees
+
+Using the above-defined =tree= datatype, define the primitive =map=, =reduce= and =filter= functions to work over trees.
+ 
+*** Reduce 
+
+Write a function =treeduce= that takes a binary function =f=,
+an initial value =init= and a binary tree =tr=, and reduces the tree of values to a single value. 
+The rules for the =treeduce= function are:
+
+- The result of each pair of child nodes is computed and taken to the parent node 
+- The value of the (result of child nodes) is combined with the value of the parent node to give the final value of
+that parent node
+
+... And so on until the tree is reduced to one value.
+
+#+BEGIN_SRC scheme :tangle fp.rkt
+(define reduce
+  (lambda(f init tr)
+    (cases tree tr
+      (leaf(v) v)
+      (node(v l r)(f v (f (reduce f init l) (reduce f init r))))
+     )))
+
+(define treeduce
+  (lambda (f init tr)
+    (f (reduce f init tr) init)))
+
+#+END_SRC
+
+#+BEGIN_SRC scheme
+  (reduce + 0 (node 3 (list (leaf 1) (leaf 2)))) =
+  (reduce + 3 (node 3)) =
+  6
+
+#+END_SRC
+
+*** Map
+
+Write a function =tree/map= that takes an unary function =f= and a tree =tr=, and returns a new
+tree by applying =f= to each node of =tr=. See the example below to understand how =tree/map= works:
+#+BEGIN_SRC scheme :tangle fp.rkt
+(define map
+  (lambda(f tr)
+    (cases tree tr
+      (leaf(v) (leaf (f v)))
+      (node(v l r) (node (f v) (map f l)(map f r)))
+     )))
+#+END_SRC
+
+
+#+BEGIN_EXAMPLE
+
+  (define incr
+    (lambda (x)
+      (+ x 1)))
+
+  (tree/map incr (node 3 (list (leaf 1) (leaf 2)))) =
+    (node 4 (list (leaf 2) (leaf 3)))
+
+#+END_EXAMPLE
+
+* Path
+
+ Write  a  procedure =path= that  takes  an  integer =n= and  a  binary search tree- in the given tree format- that contains the integer =n=, and returns a list of lefts and rights showing how to find the node containing =n=. If =n= is found at the root, it returns the empty list.
+
+(Checking to see if the tree is a BST or if it contains =n= is not necessary)
+
+#+BEGIN_SRC scheme :tangle fp.rkt
+(define path
+  (lambda(n tr)
+    (cases tree tr
+      (leaf(v)'())
+      (node(v l r)
+           (if (eqv? n v)
+               '()
+               (if (< n v)
+                   (cons 'left (path n l))
+                   (cons 'right (path n r)))))
+     )
+   ))
+
+#+END_SRC
+
+#+BEGIN_SRC scheme
+  > (define oneTree (node 14 (node 7 (leaf 5) (leaf 12)) (node  26 (leaf 17) (leaf 31))))
+  > (path 17 oneTree)
+
+  (right left)
+#+END_SRC
+
+* Larger Functions Composed of Smaller Functional Primitives
+
+Instead of writing large blocks of code, the ideal style of functional programming involves writing a large function in terms of smaller, simpler 
+functions, forcing you to break any problem down in terms of primitives and trying to connect primitives. 
+
+(Besides, the amount of bracket management involved in larger code blocks should convince you of the wisdom of keeping each racket function short.) 
+
+** Reversing A List
+
+Reverse a list using  =reduce= defined above.
+
+
+#+BEGIN_SRC scheme
+    ;;; reverse : (listof value?) -> (listof value?)
+#+END_SRC
+
+#+BEGIN_SRC scheme :tangle fp.rkt
+(define reduce2
+  (lambda(f lst)
+    (if (null? lst)
+        '()
+        (f (reduce2 f (cdr lst)) (list(car lst)) ))))
+
+(define reverse
+  (lambda(lst)
+    (reduce2 append lst)))
+#+END_SRC
+
+Hint: Use cons. See how varying the order in the binary operation of reduce
+affects your output.
+
+** Write The Smaller Function
+
+Consider the procedurenumber-elements.  This procedure shouldtake any list =(v0 v1 v2...)= and return the list
+=( (0 v0) (1 v1) (2 v2)...)=
+
+This function is defined in page 23 of the Essentials of Programming Languages textbook.
+
+Write a procedure =g= such that number-elements could be defined as:
+
+#+BEGIN_SRC scheme :tangle fp.rkt
+  (define incr
+    (lambda (x)
+      (x + 1)))
+
+(define map2
+  (lambda(f lst)
+    (if (null? lst)
+        '()
+        (cons (list (f (car (car lst))) (car (cdr (car lst)))) (map2 f (cdr lst))))))
+
+(define g
+  (lambda(lst1 lst2)
+    (if (null? lst2)
+        (list lst1)
+        (append (list lst1) (map2 incr lst2)))))
+#+END_SRC
+
+#+BEGIN_SRC scheme 
+  (define number-elements
+    (lambda (lst)
+      (if (null? lst)
+          '()
+          (g (list 0 (car lst))
+             (number-elements (cdr lst))))))
+#+END_SRC
+
+* Immutability and Iteration
+
+A major principle of functional programming is =immutability=- that is, once you bind a value to a name, that value should not change. This 
+makes some imperative programming constructs like iterative loops impossible on the surface. While racket supports mutability through variable
+assignment, you will not be allowed to use assignment in this question. 
+
+One of the simplest imperative programming algorithms a student learns are sorting algorithms, which usually involve iterative looping until
+a list is sorted. 
+
+Write the simple =bubble-sort= algorithm in Racket, as a function that takes a list =ls= and returns a sorted list.
+
+Keeping in mind the "small function rule" mentioned above, write your =bubble-sort= function in terms of the =swap= function shown below:
+
+#+BEGIN_SRC scheme :tangle fp.rkt
+(define swap
+  (lambda(ls)
+    (if (null? ls)
+        '()
+        (if (null? (cdr ls))
+            (list (car ls))
+            (if (> (car ls) (car (cdr ls)))
+                (append (list (car (cdr ls))) (swap (append (list (car ls)) (cdr (cdr ls)))))
+                (append (list (car ls)) (swap (cdr ls))))))))
+
+#+END_SRC
+
+#+BEGIN_SRC scheme :tangle fp.rkt
+(define bubble-sort
+  (lambda(lst)
+    (if(null? lst)
+       '()
+       (append (bubble-sort (cdr (reverse (swap lst)))) (list (car (reverse (swap lst)))))
+     )))
+#+END_SRC
+* Instructions
+
+  - Tangle all your code in a file named =fp.rkt=
+  - Submit only the org file on moodle as a =tar= file named =rollno_assignment-1.tar=

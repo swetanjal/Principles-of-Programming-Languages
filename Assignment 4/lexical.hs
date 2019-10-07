@@ -1,3 +1,5 @@
+import System.IO
+import Control.Monad
 import ASTParser
 
 -- Defining Expressible/Denotable Values
@@ -105,3 +107,23 @@ instance Show AST where
 instance Show Value where
     show (NumVal i) = (show i)
     show (BoolVal b) = (show b)
+
+
+-- REPL
+read' :: IO String
+read' =  putStr "Lexical-Lang> "
+    >> hFlush stdout
+    >> getLine
+
+eval' :: String -> String
+eval' input = (show ( eval [] (toAST ( parse input ))))
+
+print' :: String -> IO ()
+print' = putStrLn
+
+main :: IO ()
+main = do
+  input <- read'
+  
+  unless (input == ":quit")
+       $ print' (eval' input) >> main

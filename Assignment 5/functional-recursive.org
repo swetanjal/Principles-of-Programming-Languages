@@ -1,0 +1,97 @@
+#+TITLE: The RECURSIVE-FUNCTIONS Language
+#+AUTHOR: Atreyee Ghosal
+
+You have seen example definitions of semantic domains, expressible values, AST and environment in the previous assignment. Hopefully, you have completed those definitions.
+
+This assignment builds on the previous assignment, but some of yor existing types have to be extended.
+
+This assignment, however, has a bit of a catch- I have built the parser using Haskell's =Parsec= library, which is not an inbuilt library. It needs to be downloaded using the Haskell package manager, =cabal=. The steps to do so are here:
+https://www.haskell.org/cabal/
+
+In short:
+
+#+BEGIN_SRC 
+> sudo apt install cabal-install
+> cabal install parsec
+or
+> cabal new-install parsec
+#+END_SRC 
+
+* AST
+
+The AST has been provided for you in =parser.org=, under the top-level heading =Abstract Syntax Tree=. I've copied it here for reference:
+
+
+#+BEGIN_SRC haskell
+  type ID = String
+
+  data Binding = Bind ID AST
+                 deriving Show
+
+  data FBind = FBind ID [ID] AST
+               deriving (Show)
+    
+  data AST =
+      Number Int
+    | Boolean Bool                              
+    | Reference ID                              
+    | Assume [Binding] AST                      
+    | If AST AST AST                            
+    | Function [ID] AST
+    | RecFun [FBind] AST
+    | App [AST]  -- 'app' meaning 'Application' 
+    deriving Show
+#+END_SRC
+
+* Semantic Domains
+
+Expressible and denotable values now include =procedures=, along with numeric and boolean data types.
+
+A =procedure= consists of either a primitive (inbuilt) procedure, or a closure with a list of formals, a body and an environment. 
+
+Numeric and boolean types remain the same.
+
+* Recursive Environment
+
+An environment is a repository of mappings from symbols
+to values, ie., values *denoted* by identifiers. A recursive env is a union type of either an empty environment OR an extended environment consisting of a list of symbols, a list of denotable values and an outer environment.
+* Concrete Syntax
+
+#+BEGIN_EXAMPLE
+  ;;;  <exp>  ::= <number> |
+  ;;;             <boolean> |
+  ;;;             <id>  |
+  ;;;             (ifte <exp> <exp> <exp>) |
+  ;;;             (assume ((<id> <exp>) . (<id> <exp>)...) <exp>) |
+  ;;;             (function (<id> ...) <exp>) |
+  ;;;             (recfun ((<id> (<id> . <id> ...) <exp>) . (<id> (<id> . <id> ...) <exp>)) <exp>) | 
+  ;;;             (<exp> <exp> ...)
+#+END_EXAMPLE
+
+A note: the parser function has changed from =parse= to =parseString=, although it still functions the same way.
+
+** Examples
+
+#+BEGIN_SRC haskell
+  ,*ASTParser> parseString "(= 1 2)"
+  App [Reference "=",Number 1,Number 2]
+  ,*ASTParser> parseString "1"
+  Number 1
+  ,*ASTParser> parseString "True"
+  Boolean True
+  ,*ASTParser> parseString "(+ 1 2)"
+  App [Reference "+",Number 1,Number 2]
+  ,*ASTParser> parseString "x"
+  Reference "x"
+  ,*ASTParser> parseString "(assume ((x (+ 1 2)) . (y 3)) (+ x y))"
+  Assume [Bind "x" (App [Reference "+",Number 1,Number 2]),Bind "y" (Number 3)] (App [Reference "+",Reference "x",Reference "y"])
+  ,*ASTParser> parseString "(assume ((add (function (x . y) (+ x y)))) (add 2 3))" 
+  Assume [Bind "add" (Function ["x","y"] (App [Reference "+",Reference "x",Reference "y"]))] (App [Reference "add",Number 2,Number 3])
+  parseString "(recfun ((isEven (x) (isOdd (- x 1))) . (isOdd (x) (isEven (- x 1)))) (isEven 2))"
+  App [Reference "recfun",App [App [Reference "isEven",App [Reference "x"],App [Reference "isOdd",App [Reference "-",Reference "x",Number 1]]],Reference ".",App [Reference "isOdd",App [Reference "x"],App [Reference "isEven",App [Reference "-",Reference "x",Number 1]]]],App [Reference "isEven",Number 2]]
+
+
+#+END_SRC
+* Evaluator
+
+Function binding, function application, recursive function binding and recursive function application are the main evaluation cases that you need to add. 

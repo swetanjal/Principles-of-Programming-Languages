@@ -31,7 +31,7 @@ searchEnv :: Env -> ID -> Value
 searchEnv (e:e_dash) x = (if (fst e) == x
                                 then (snd e)
                                 else (searchEnv e_dash x) )
-searchEnv _ x = error "Variable not declared"
+searchEnv _ x = (error ("Variable not declared " ++ show x))
 
 getMap :: Env -> Binding -> (ID, Value)
 getMap e (Bind id a) = (id, (eval e a))
@@ -40,6 +40,10 @@ extendenv :: [Binding] -> Env -> Env
 extendenv (el:ls) e = (getMap e el) : (extendenv ls e)
 extendenv _ e = e
 
+concatEnv :: Env -> Env -> Env
+concatEnv (a : a_ls) b = a : (concatEnv a_ls b)
+concatEnv _ (b : b_ls) = b : (concatEnv [] b_ls)
+concatEnv _ _ = []
 --------------------------------------------------------------------------------------------
 
 getFormalParams :: Value -> [ID]
@@ -69,6 +73,21 @@ getClosureAST :: ID -> Env -> AST
 getClosureAST x (e:e_dash) = (if (fst e) == x
                                 then (procClosureAST (snd e))
                                 else (getClosureAST x e_dash))
+
+--------------------------------------------------------------------------------------------
+-- Helper Functions Handling Recursive Procedures
+
+procFBind :: FBind -> Env -> (ID, Value)
+procFBind (FBind id formals body) env = (id , (Proc formals body ((id, (Proc formals body env)) : env)))
+
+getRecFunEnv :: [FBind] -> Env -> [(ID, Value)]
+getRecFunEnv (e : e_dash) env = (procFBind e env) : (getRecFunEnv e_dash env)
+getRecFunEnv _ env = []
+
+extendenvByValue :: [(ID, Value)] -> Env -> Env
+extendenvByValue (e : e_dash) env = e : (extendenvByValue e_dash env)
+extendenvByValue _ env = env
+
 ------------------------------ Evaluator Function ------------------------------------------
 eval :: Env -> AST -> Value
 eval env (Number n) = NumVal n
@@ -82,11 +101,15 @@ eval env (Assume ls tr) = (eval (extendenv ls env) tr)
 -- ASTs for inbuilt functions
 eval env (App [Reference "+", a, b]) = (NumVal (add2 (eval env a) (eval env b)))
 eval env (App [Reference "-", a, b]) = (NumVal (sub2 (eval env a) (eval env b)))
-
+eval env (App [Reference "*", a, b]) = (NumVal (mult2 (eval env a) (eval env b)))
+eval env (App [Reference "isZero", a]) = (BoolVal (isZero (eval env a)))
 
 -- Support for user defined Procedures
 eval env (Function ls a) = (Proc ls a env)
-eval env (App ((Reference proc_name) : params)) = (eval (extendenv (createBinds (getFormalParamList proc_name env) params) (getClosureEnv proc_name env)) (getClosureAST proc_name env))
+eval env (App ((Reference proc_name) : params)) = (eval (concatEnv (extendenv (createBinds (getFormalParamList proc_name env) params) env) (getClosureEnv proc_name env)) (getClosureAST proc_name env))
+
+-- Support for recursive functions
+eval env (RecFun ls tr) = (eval (extendenvByValue (getRecFunEnv ls env) env) tr)
 ---------------------------------------------------------------------------------------------
 
 -------------------------------- Inbuilt functions -------------------------------------------

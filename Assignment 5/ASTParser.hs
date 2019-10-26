@@ -31,7 +31,7 @@ languageDef =
    emptyDef { Token.identStart      = letter <|> oneOf "+-*/|&~"
             , Token.identLetter     = alphaNum <|> oneOf "+-*/|&~"
             , Token.opLetter        = oneOf "+-*/&|~" 
-            , Token.reservedNames   = [ "if", "assume", "True", "False", "function"]
+            , Token.reservedNames   = [ "if", "assume", "True", "False", "function", "recfun"]
             }
 
 lexer = Token.makeTokenParser languageDef

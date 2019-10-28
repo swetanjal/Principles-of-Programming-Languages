@@ -102,6 +102,12 @@ eval env (Assume ls tr) = (eval (extendenv ls env) tr)
 eval env (App [Reference "+", a, b]) = (NumVal (add2 (eval env a) (eval env b)))
 eval env (App [Reference "-", a, b]) = (NumVal (sub2 (eval env a) (eval env b)))
 eval env (App [Reference "*", a, b]) = (NumVal (mult2 (eval env a) (eval env b)))
+eval env (App [Reference "/", a, b]) = (NumVal (div2 (eval env a) (eval env b)))
+eval env (App [Reference "=", a, b]) = (BoolVal (equals (eval env a) (eval env b)))
+
+eval env (App [Reference "or", a, b]) = (BoolVal (or2 (eval env a) (eval env b)))
+eval env (App [Reference "and", a, b]) = (BoolVal (and2 (eval env a) (eval env b)))
+eval env (App [Reference "not", a]) = (BoolVal (not1 (eval env a) ))
 eval env (App [Reference "isZero", a]) = (BoolVal (isZero (eval env a)))
 
 -- Support for user defined Procedures
@@ -115,14 +121,58 @@ eval env (RecFun ls tr) = (eval (extendenvByValue (getRecFunEnv ls env) env) tr)
 -------------------------------- Inbuilt functions -------------------------------------------
 add2 :: Value -> Value -> Int
 add2 (NumVal a) (NumVal b) = (a + b)
+add2 _ _ = error "Types can't be matched!"
+
 
 mult2 :: Value -> Value -> Int
 mult2 (NumVal a) (NumVal b) = (a * b)
+mult2 _ _ = error "Types can't be matched!"
+
 
 sub2 :: Value -> Value -> Int
 sub2 (NumVal a) (NumVal b) = (a - b)
+sub2 _ _ = error "Types can't be matched!"
+
+div2 :: Value -> Value -> Int
+div2 (NumVal a) (NumVal 0) = error "Division by zero!"
+div2 (NumVal a) (NumVal b) = (div a b)
+div2 _ _ = error "Types can't be matched!"
 
 isZero :: Value -> Bool
 isZero (NumVal z) = (if z == 0
                         then True
                         else False)
+isZero _ = error "Types can't be matched!"
+
+equals :: Value -> Value -> Bool
+equals (NumVal a) (NumVal b) = (if a == b
+                                    then True
+                                    else False)
+equals _ _ = error "Types can't be matched!"
+
+or2 :: Value -> Value -> Bool
+or2 (BoolVal a) (BoolVal b) = (if a == True || b == True
+                                then True
+                                else False)
+or2 _ _ = error "Types can't be matched!"
+
+and2 :: Value -> Value -> Bool
+and2 (BoolVal a) (BoolVal b) = (if a == True && b == True
+                                    then True
+                                    else False)
+and2 _ _ = error "Types can't be matched!"
+
+
+not1 :: Value -> Bool
+not1 (BoolVal a) = (if a == True
+                        then False
+                        else True)
+not1 _ = error "Types can't be matched!"
+------------------------------- Main Function -------------------------------------------------
+run :: String -> Value
+run program = (eval [] (parseString program))
+
+------------------------------------- Examples ------------------------------------------------
+-- run "(recfun ((iseven (x) (if (= x 0) True (isodd (- x 1)))) .  (isodd (x) (if (= x 0) False (iseven (- x 1)) )) ) (isodd 12))"
+-- run "(recfun ((factorial (x) (if (= x 0) 1 (* x (factorial2 (- x 1))))) .  (factorial2 (x) (if (= x 0) 1 (* x (factorial (- x 1))))) ) (factorial2 10))"
+-- run "(recfun ((factorial (x) (if (= x 0) 1 (* x (factorial (- x 1)))))) (factorial 6))"

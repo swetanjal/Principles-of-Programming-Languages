@@ -3,9 +3,10 @@ import Control.Monad
 import ASTParser
 
 ------------------------------ Defining Datatypes ---------------------------------------
-data Value = NumVal Int | BoolVal Bool | Proc [ID] AST Env
+data Value = NumVal Int | BoolVal Bool | Proc [ID] AST Env | Stores Int
             deriving Show
 type Env = [(ID, Value)]
+type Store = [Value]
 ------------------------------------------------------------------------------------------
 
 ------------------------------ Helper Functions ------------------------------------------
@@ -20,10 +21,33 @@ getValBool (NumVal 0) = error "Expected Bool got Int"
 getValBool (NumVal i) = error "Expected Bool got Int"
 -------------------------------------------------------------------------------------------
 
+------------------------------ Helper Functions for Stores ---------------------------------
+
+getIndex :: Value -> Int
+getIndex (Stores i) = i
+
+
+storeExtend :: Store -> Value -> Store
+storeExtend s v = s ++ [v]
+
+storeGet :: Store -> Value -> Value
+storeGet s (Stores i) = s !! i
+
+getNewStore :: Store -> Value -> Value -> Int -> Store
+getNewStore (x : rem) idx v len = if (len - (length rem)) == (getIndex idx)
+                                            then v : (getNewStore rem idx v len)
+                                            else x : (getNewStore rem idx v len)
+getNewStore _ _ _ _ = []
+
+storeSet :: Store -> Value -> Value -> Store
+storeSet s i v = (getNewStore s i v (length s))
+
+-------------------------------------------------------------------------------------------
+
 --------- Takes an environment and a list of ASTs and evaluates them in the env -----------
-evalASTList :: Env -> [AST] -> [Value]
-evalASTList env (x:y) = (eval env x) : (evalASTList env y)
-evalASTList env _ = []
+--evalASTList :: Env -> Store -> [AST] -> [Value]
+--evalASTList env s (x:y) = (eval env s x) : (evalASTList env s y)
+--evalASTList env _ _ = []
 -------------------------------------------------------------------------------------------
 
 -------------- Functions to look up environment and extend environment --------------------
@@ -33,12 +57,12 @@ searchEnv (e:e_dash) x = (if (fst e) == x
                                 else (searchEnv e_dash x) )
 searchEnv _ x = (error ("Variable not declared " ++ show x))
 
-getMap :: Env -> Binding -> (ID, Value)
-getMap e (Bind id a) = (id, (eval e a))
+getMap :: Env -> Store -> Binding -> (ID, Value)
+getMap e s (Bind id a) = (id, (fst (eval e s a)))
 
-extendenv :: [Binding] -> Env -> Env
-extendenv (el:ls) e = (getMap e el) : (extendenv ls e)
-extendenv _ e = e
+extendenv :: [Binding] -> Env -> Store -> Env
+extendenv (el:ls) e s = (getMap e s el) : (extendenv ls e s)
+extendenv _ e _ = e
 
 concatEnv :: Env -> Env -> Env
 concatEnv (a : a_ls) b = a : (concatEnv a_ls b)
@@ -89,33 +113,40 @@ extendenvByValue (e : e_dash) env = e : (extendenvByValue e_dash env)
 extendenvByValue _ env = env
 
 ------------------------------ Evaluator Function ------------------------------------------
-eval :: Env -> AST -> Value
-eval env (Number n) = NumVal n
-eval env (Boolean b) = BoolVal b
-eval env (If p1 p2 p3) = (if (getValBool (eval env p1)) == True
-                            then (eval env p2)
-                            else (eval env p3))
-eval env (Reference v) = (searchEnv env v)
-eval env (Assume ls tr) = (eval (extendenv ls env) tr)
+eval :: Env -> Store -> AST -> (Value, Store)
+eval env s (Number n) = (NumVal n, s)
+eval env s (Boolean b) = (BoolVal b, s)
+eval env s (If p1 p2 p3) = (if (getValBool (fst (eval env s p1)) ) == True
+                            then (eval env (snd (eval env s p1)) p2)
+                            else (eval env (snd (eval env s p1)) p3))
+eval env s (Reference v) = ((searchEnv env v), s)
+eval env s (Assume ls tr) = (eval (extendenv ls env s) s tr)
 
 -- ASTs for inbuilt functions
-eval env (App [Reference "+", a, b]) = (NumVal (add2 (eval env a) (eval env b)))
-eval env (App [Reference "-", a, b]) = (NumVal (sub2 (eval env a) (eval env b)))
-eval env (App [Reference "*", a, b]) = (NumVal (mult2 (eval env a) (eval env b)))
-eval env (App [Reference "/", a, b]) = (NumVal (div2 (eval env a) (eval env b)))
-eval env (App [Reference "=", a, b]) = (BoolVal (equals (eval env a) (eval env b)))
+eval env s (App [Reference "+", a, b]) = ((NumVal (add2 (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)) )), (snd (eval env (snd (eval env s a)) b)))
+eval env s (App [Reference "-", a, b]) = ((NumVal (sub2 (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)) )), (snd (eval env (snd (eval env s a)) b)))
+eval env s (App [Reference "*", a, b]) = ((NumVal (mult2 (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)) )), (snd (eval env (snd (eval env s a)) b)))
+eval env s (App [Reference "/", a, b]) = ((NumVal (div2 (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)) )), (snd (eval env (snd (eval env s a)) b)))
 
-eval env (App [Reference "or", a, b]) = (BoolVal (or2 (eval env a) (eval env b)))
-eval env (App [Reference "and", a, b]) = (BoolVal (and2 (eval env a) (eval env b)))
-eval env (App [Reference "not", a]) = (BoolVal (not1 (eval env a) ))
-eval env (App [Reference "isZero", a]) = (BoolVal (isZero (eval env a)))
+eval env s (App [Reference "=", a, b]) = ((BoolVal (equals (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)) )), (snd (eval env (snd (eval env s a)) b)))
+
+eval env s (App [Reference "or", a, b]) = ((BoolVal (or2 (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)))), (snd (eval env (snd (eval env s a)) b)))
+eval env s (App [Reference "and", a, b]) = ((BoolVal (and2 (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)))), (snd (eval env (snd (eval env s a)) b)))
+eval env s (App [Reference "not", a]) = ((BoolVal (not1 (fst (eval env s a)))), (snd (eval env s a)))
+eval env s (App [Reference "isZero", a]) = ((BoolVal (isZero (fst (eval env s a)))), (snd (eval env s a)))
+
 
 -- Support for user defined Procedures
-eval env (Function ls a) = (Proc ls a env)
-eval env (App ((Reference proc_name) : params)) = (eval (concatEnv (extendenv (createBinds (getFormalParamList proc_name env) params) env) (getClosureEnv proc_name env)) (getClosureAST proc_name env))
+eval env s (Function ls a) = ((Proc ls a env), s)
+eval env s (App ((Reference proc_name) : params)) = (eval (concatEnv (extendenv (createBinds (getFormalParamList proc_name env) params) env s) (getClosureEnv proc_name env)) s (getClosureAST proc_name env))
 
 -- Support for recursive functions
-eval env (RecFun ls tr) = (eval (extendenvByValue (getRecFunEnv ls env) env) tr)
+eval env s (RecFun ls tr) = (eval (extendenvByValue (getRecFunEnv ls env) env) s tr)
+
+-- Support for Stores
+--eval env s (NewRef a) = (storeExtend s (eval env s a))
+
+eval _ _ _ = error "Invalid Syntax!"
 ---------------------------------------------------------------------------------------------
 
 -------------------------------- Inbuilt functions -------------------------------------------
@@ -170,7 +201,7 @@ not1 (BoolVal a) = (if a == True
 not1 _ = error "Types can't be matched!"
 ------------------------------- Main Function -------------------------------------------------
 run :: String -> Value
-run program = (eval [] (parseString program))
+run program = (fst (eval [] [] (parseString program)))
 
 ------------------------------------- Examples ------------------------------------------------
 -- run "(recfun ((iseven (x) (if (= x 0) True (isodd (- x 1)))) .  (isodd (x) (if (= x 0) False (iseven (- x 1)) )) ) (isodd 12))"

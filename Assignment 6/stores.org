@@ -1,0 +1,131 @@
+#+TITLE: The STORES Language
+#+AUTHOR: Atreyee Ghosal
+
+This assignment just adds expressions for:
+
+- Creating a new variable (store)
+- Dereferencing a variable
+- Setting the reference of a variable
+
+And also adds sequences of expressions, to enable sequential programming as in imperative languages.
+
+* AST
+
+The AST has been provided for you in =parser.org=, under the top-level heading =Abstract Syntax Tree=. I've copied it here for reference:
+
+
+#+NAME: ast
+#+BEGIN_SRC haskell
+
+  type ID = String
+
+  data Binding = Bind ID AST
+                 deriving Show
+
+  data FBind = FBind ID [ID] AST
+               deriving (Show)
+    
+  data AST =
+      Number Int
+    | Boolean Bool                              
+    | Reference ID                              
+    | Assume [Binding] AST                      
+    | If AST AST AST                            
+    | Function [ID] AST
+    | RecFun [FBind] AST
+    | App [AST]  -- 'app' meaning 'Application'
+    | NewRef AST
+    | DeRef AST
+    | SetRef AST AST
+    | Sequence [AST]
+    deriving Show
+#+END_SRC
+
+
+* Semantic Domains
+
+Expressible and denotable values now include =references= along with numeric, boolean and procedure  data types.
+
+* API For Stores
+
+A store is implemented as a triple.  The first element is the symbol 'store'.  The second is a vector vec.  The third is a natural number n that denotes the next free location in the vector.
+
+The =store= datatype implements the following functions:
+
+#+BEGIN_EXAMPLE
+  ;;; empty-store: store?
+
+  ;;; store-size
+  ;;; ----------
+  ;;; returns the size of the current store
+  ;;; store-size: store? -> nat
+
+
+  ;;; deref
+  ;;; -----
+
+  ;;; deref: [store? ref?] -> storable-value?
+
+  ;;; setref
+  ;;; ------
+
+  ;;; takes a store s, a reference r and a storable value v
+  ;;; and returns a new store that is like s except that it
+  ;;; maps r to v.
+
+  ;;; setref : [store? ref? storable-value?] -> store?
+
+  ;;; new-ref
+  ;;; -------
+
+  ;;; takes a store and returns a new store which is the same
+  ;;; as before, except that a new reference is created and its
+
+  ;;; new-ref: [store? storable-value?] -> [store?, ref?]
+
+#+END_EXAMPLE
+* Concrete Syntax
+
+#+BEGIN_EXAMPLE
+  <exp>  ::=  <number> 
+           |  <boolean> 
+           |   <id>  
+           |   (if <exp> <exp> <exp>) 
+           |   (assume ((<id> <exp>) . (<id> <exp>)...) <exp>) 
+           |   (function (<id> ...) <exp>) 
+           |   (recfun ((<id> (<id> . <id> ...) <exp>) . (<id> (<id> . <id> ...) <exp>)) <exp>)
+           |   (setref <exp> <exp>)
+           |   (deref <exp>)
+           |   (newref <exp>)
+           |   (seq (<exp> . <exp> ...))
+#+END_EXAMPLE
+
+A note: the parser function has changed from =parse= to =parseString=, although it still functions the same way.
+
+** Examples
+
+#+BEGIN_SRC haskell
+  ,*ASTParser> parseString "(= 1 2)"
+  App [Reference "=",Number 1,Number 2]
+  ,*ASTParser> parseString "1"
+  Number 1
+  ,*ASTParser> parseString "True"
+  Boolean True
+  ,*ASTParser> parseString "(+ 1 2)"
+  App [Reference "+",Number 1,Number 2]
+  ,*ASTParser> parseString "x"
+  Reference "x"
+  ,*ASTParser> parseString "(assume ((x (+ 1 2)) . (y 3)) (+ x y))"
+  Assume [Bind "x" (App [Reference "+",Number 1,Number 2]),Bind "y" (Number 3)] (App [Reference "+",Reference "x",Reference "y"])
+  ,*ASTParser> parseString "(assume ((add (function (x . y) (+ x y)))) (add 2 3))" 
+  Assume [Bind "add" (Function ["x","y"] (App [Reference "+",Reference "x",Reference "y"]))] (App [Reference "add",Number 2,Number 3])
+  parseString "(recfun ((isEven (x) (isOdd (- x 1))) . (isOdd (x) (isEven (- x 1)))) (isEven 2))"
+  App [Reference "recfun",App [App [Reference "isEven",App [Reference "x"],App [Reference "isOdd",App [Reference "-",Reference "x",Number 1]]],Reference ".",App [Reference "isOdd",App [Reference "x"],App [Reference "isEven",App [Reference "-",Reference "x",Number 1]]]],App [Reference "isEven",Number 2]]
+  ,*ASTParser> parseString "(seq ((newref 5) . (setref 5 7) . (deref 5)))"
+  Sequence [NewRef (Number 5),SetRef (Number 5) (Number 7),DeRef (Number 5)]
+
+
+#+END_SRC
+* Evaluator
+
+Your evaluation function needs to deal with stores.

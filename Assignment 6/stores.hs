@@ -3,7 +3,7 @@ import Control.Monad
 import ASTParser
 
 ------------------------------ Defining Datatypes ---------------------------------------
-data Value = NumVal Int | BoolVal Bool | Proc [ID] AST Env | Stores Int
+data Value = NumVal Int | BoolVal Bool | Proc [ID] AST Env
             deriving Show
 type Env = [(ID, Value)]
 type Store = [Value]
@@ -24,14 +24,14 @@ getValBool (NumVal i) = error "Expected Bool got Int"
 ------------------------------ Helper Functions for Stores ---------------------------------
 
 getIndex :: Value -> Int
-getIndex (Stores i) = i
+getIndex (NumVal i) = i
 
 
-storeExtend :: Store -> Value -> Store
-storeExtend s v = s ++ [v]
+storeExtend :: Store -> Value -> (Value, Store)
+storeExtend s v = (NumVal (length s), s ++ [v])
 
 storeGet :: Store -> Value -> Value
-storeGet s (Stores i) = s !! i
+storeGet s (NumVal i) = s !! i
 
 getNewStore :: Store -> Value -> Value -> Int -> Store
 getNewStore (x : rem) idx v len = if (len - (length rem)) == (getIndex idx)
@@ -39,8 +39,8 @@ getNewStore (x : rem) idx v len = if (len - (length rem)) == (getIndex idx)
                                             else x : (getNewStore rem idx v len)
 getNewStore _ _ _ _ = []
 
-storeSet :: Store -> Value -> Value -> Store
-storeSet s i v = (getNewStore s i v (length s))
+storeSet :: Store -> Value -> Value -> (Value, Store)
+storeSet s i v = (NumVal 0, (getNewStore s i v (length s)))
 
 -------------------------------------------------------------------------------------------
 
@@ -57,12 +57,12 @@ searchEnv (e:e_dash) x = (if (fst e) == x
                                 else (searchEnv e_dash x) )
 searchEnv _ x = (error ("Variable not declared " ++ show x))
 
-getMap :: Env -> Store -> Binding -> (ID, Value)
-getMap e s (Bind id a) = (id, (fst (eval e s a)))
+getMap :: Env -> Store -> Binding -> ((ID, Value), Store)
+getMap e s (Bind id a) = ((id, (fst (eval e s a))), (snd (eval e s a))) 
 
-extendenv :: [Binding] -> Env -> Store -> Env
-extendenv (el:ls) e s = (getMap e s el) : (extendenv ls e s)
-extendenv _ e _ = e
+extendenv :: [Binding] -> Env -> Store -> (Env, Store)
+extendenv (el:ls) e s = ((fst (getMap e s el)) : (fst (extendenv ls e (snd (getMap e s el)))), (snd (extendenv ls e (snd (getMap e s el)))))
+extendenv _ e s = (e, s)
 
 concatEnv :: Env -> Env -> Env
 concatEnv (a : a_ls) b = a : (concatEnv a_ls b)
@@ -120,7 +120,7 @@ eval env s (If p1 p2 p3) = (if (getValBool (fst (eval env s p1)) ) == True
                             then (eval env (snd (eval env s p1)) p2)
                             else (eval env (snd (eval env s p1)) p3))
 eval env s (Reference v) = ((searchEnv env v), s)
-eval env s (Assume ls tr) = (eval (extendenv ls env s) s tr)
+eval env s (Assume ls tr) = (eval (fst (extendenv ls env s)) (snd (extendenv ls env s)) tr)
 
 -- ASTs for inbuilt functions
 eval env s (App [Reference "+", a, b]) = ((NumVal (add2 (fst (eval env s a)) (fst (eval env (snd (eval env s a)) b)) )), (snd (eval env (snd (eval env s a)) b)))
@@ -138,13 +138,17 @@ eval env s (App [Reference "isZero", a]) = ((BoolVal (isZero (fst (eval env s a)
 
 -- Support for user defined Procedures
 eval env s (Function ls a) = ((Proc ls a env), s)
-eval env s (App ((Reference proc_name) : params)) = (eval (concatEnv (extendenv (createBinds (getFormalParamList proc_name env) params) env s) (getClosureEnv proc_name env)) s (getClosureAST proc_name env))
+eval env s (App ((Reference proc_name) : params)) = (eval (concatEnv (fst (extendenv (createBinds (getFormalParamList proc_name env) params) env s)) (getClosureEnv proc_name env)) (snd (extendenv (createBinds (getFormalParamList proc_name env) params) env s)) (getClosureAST proc_name env))
 
 -- Support for recursive functions
 eval env s (RecFun ls tr) = (eval (extendenvByValue (getRecFunEnv ls env) env) s tr)
 
 -- Support for Stores
---eval env s (NewRef a) = (storeExtend s (eval env s a))
+eval env s (NewRef a) = (storeExtend s (fst (eval env s a)))
+eval env s (SetRef idx a) = (storeSet s (fst (eval env s idx)) (fst (eval env s a)))
+eval env s (DeRef idx) = ((storeGet s (fst (eval env s idx))), s)
+
+
 
 eval _ _ _ = error "Invalid Syntax!"
 ---------------------------------------------------------------------------------------------
@@ -207,3 +211,4 @@ run program = (fst (eval [] [] (parseString program)))
 -- run "(recfun ((iseven (x) (if (= x 0) True (isodd (- x 1)))) .  (isodd (x) (if (= x 0) False (iseven (- x 1)) )) ) (isodd 12))"
 -- run "(recfun ((factorial (x) (if (= x 0) 1 (* x (factorial2 (- x 1))))) .  (factorial2 (x) (if (= x 0) 1 (* x (factorial (- x 1))))) ) (factorial2 10))"
 -- run "(recfun ((factorial (x) (if (= x 0) 1 (* x (factorial (- x 1)))))) (factorial 6))"
+-- run "(assume ((r (newref 90))) (deref r))"

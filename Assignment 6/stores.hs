@@ -34,7 +34,7 @@ storeGet :: Store -> Value -> Value
 storeGet s (NumVal i) = s !! i
 
 getNewStore :: Store -> Value -> Value -> Int -> Store
-getNewStore (x : rem) idx v len = if (len - (length rem)) == (getIndex idx)
+getNewStore (x : rem) idx v len = if (len - (length rem) - 1) == (getIndex idx)
                                             then v : (getNewStore rem idx v len)
                                             else x : (getNewStore rem idx v len)
 getNewStore _ _ _ _ = []
@@ -42,12 +42,13 @@ getNewStore _ _ _ _ = []
 storeSet :: Store -> Value -> Value -> (Value, Store)
 storeSet s i v = (NumVal 0, (getNewStore s i v (length s)))
 
--------------------------------------------------------------------------------------------
 
---------- Takes an environment and a list of ASTs and evaluates them in the env -----------
---evalASTList :: Env -> Store -> [AST] -> [Value]
---evalASTList env s (x:y) = (eval env s x) : (evalASTList env s y)
---evalASTList env _ _ = []
+setBang :: [AST] -> Env -> Store -> (Value, Store)
+-- Returns value of last evaluated AST in list
+setBang (a : ls) e s = if (length ls) == 0
+                        then ((fst (eval e s a)), (snd (eval e s a)))
+                        else (setBang ls e (snd (eval e s a)))
+
 -------------------------------------------------------------------------------------------
 
 -------------- Functions to look up environment and extend environment --------------------
@@ -147,7 +148,7 @@ eval env s (RecFun ls tr) = (eval (extendenvByValue (getRecFunEnv ls env) env) s
 eval env s (NewRef a) = (storeExtend s (fst (eval env s a)))
 eval env s (SetRef idx a) = (storeSet s (fst (eval env s idx)) (fst (eval env s a)))
 eval env s (DeRef idx) = ((storeGet s (fst (eval env s idx))), s)
-
+eval env s (Sequence ls) = (setBang ls env s)
 
 
 eval _ _ _ = error "Invalid Syntax!"
@@ -212,3 +213,4 @@ run program = (fst (eval [] [] (parseString program)))
 -- run "(recfun ((factorial (x) (if (= x 0) 1 (* x (factorial2 (- x 1))))) .  (factorial2 (x) (if (= x 0) 1 (* x (factorial (- x 1))))) ) (factorial2 10))"
 -- run "(recfun ((factorial (x) (if (= x 0) 1 (* x (factorial (- x 1)))))) (factorial 6))"
 -- run "(assume ((r (newref 90))) (deref r))"
+-- run "(assume ( (r (newref 5))) (+ (seq ((setref r 7) . (deref r))) (deref r)))"
